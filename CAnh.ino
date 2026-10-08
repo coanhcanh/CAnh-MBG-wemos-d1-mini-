@@ -2,18 +2,19 @@
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>
 #include "GameEngine.h"
-#include "SnakeGame.h"  // Thêm file game mới ở đây
-#include "Settings.h"   // File Cài đặt
-#include "DinoGame.h"   //game khủng long
-#include "BounceGame.h"   //game quả bóng
-#include "FlappyGame.h"   //game flappy bird
-#include "CarGame.h"  // Thêm game đua xe
-#include "TetrisGame.h"  //game xếp hình
-#include "ContraGame.h" // Thêm game Contra
-#include "PacmanGame.h" //game Pacman
-#include "PlaneGame.h"  //game bắn máy bay
+#include "SnakeGame.h"  
+#include "Settings.h"   
+#include "DinoGame.h"   
+#include "BounceGame.h"   
+#include "FlappyGame.h"   
+#include "CarGame.h"  
+#include "TetrisGame.h"  
+#include "ContraGame.h" 
+#include "PacmanGame.h" 
+#include "PlaneGame.h"  
 
 #include "MusicMenu.h" // Thêm menu nhạc
+#include "Wifi.h"      // Thêm trang quản lý Wifi mới
 
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
@@ -28,35 +29,11 @@ const int PIN_A     = D3;
 const int PIN_B     = 3;   
 const int PIN_BUZZER = D8;
 
-unsigned long globalBLastPressTime = 0;
-int globalBPressCount = 0;
-bool globalBWasPressed = false;
-
-// Hàm kiểm tra bấm phím B 3 lần liên tiếp (khoảng cách dưới 0.5 giây)
-bool checkGlobalExitGame(bool bBtn, int buzzerPin) {
-  unsigned long now = millis();
-  if (bBtn) {
-    if (!globalBWasPressed) {
-      globalBWasPressed = true;
-      if (now - globalBLastPressTime < 500) { 
-        globalBPressCount++;
-      } else {
-        globalBPressCount = 1; 
-      }
-      globalBLastPressTime = now;
-      tone(buzzerPin, 600, 50); // Tiếng kêu nhỏ mỗi lần bấm phím B
-    }
-  } else {
-    globalBWasPressed = false;
-  }
-
-  if (globalBPressCount >= 3) {
-    globalBPressCount = 0; 
-    tone(buzzerPin, 1000, 100); // Tiếng kêu xác nhận thoát game
-    return true; 
-  }
-  return false;
-}
+// --- QUẢN LÝ 3 TRANG SONG SONG ---
+// 0: Trang Menu Game (CAnh.ino)
+// 1: Trang Kho Tàng Nhạc (MusicMenu.h)
+// 2: Trang Quản Lý Wifi (Wifi.h)
+int currentPage = 0; 
 
 // --- DANH SÁCH CÁC TRÒ CHƠI VÀ CÀI ĐẶT ---
 GameItem gameList[] = {
@@ -76,12 +53,11 @@ const int totalItems = sizeof(gameList) / sizeof(gameList[0]);
 int currentSelection = 0; 
 bool inGame = false;      
 bool inSettings = false;  
-bool inMusicMenu = false;
+bool inMusicMenu = false; // Khai báo biến này để tương thích với MusicMenu.h
 
 unsigned long lastDebounceTime = 0;
 const unsigned long debounceDelay = 150; 
 
-// --- ĐỊNH NGHĨA TẦN SỐ CÁC NỐT NHẠC (Mario Theme) ---
 #define NOTE_E7  2637
 #define NOTE_C7  2093
 #define NOTE_G7  3136
@@ -119,7 +95,6 @@ void setup() {
     for(;;);
   }
 
-  // --- HIỂN THỊ MÀN HÌNH CHÀO MỪNG ĐÃ ĐƯỢC KHÔI PHỤC ---
   display.clearDisplay();
   display.setTextSize(1);
   display.setTextColor(SSD1306_WHITE);
@@ -131,10 +106,8 @@ void setup() {
   display.println(F("mobile game"));
   display.display();
   
-  // Phát nhạc nền Mario khi khởi động
   playMarioStartup();
-  
-  delay(500); // Dừng lại một chút trước khi vào menu
+  delay(500);
 }
 
 void loop() {
@@ -147,9 +120,23 @@ void loop() {
   bool btnA = (digitalRead(PIN_A) == LOW);
   bool btnB = (digitalRead(PIN_B) == LOW);
 
-  // 1. Đang ở Menu Game chính
-  if (!inGame && !inSettings && !inMusicMenu) {
+  if (inGame) {
+    gameList[currentSelection].runFunc(btnUp, btnDown, btnLeft, btnRight, btnA, btnB, display, PIN_BUZZER, inGame);
+    return;
+  }
+  if (inSettings) {
     if (currentTime - lastDebounceTime > debounceDelay) {
+      runSettings(display, PIN_BUZZER, btnUp, btnDown, btnB, inSettings);
+      lastDebounceTime = currentTime;
+    }
+    return;
+  }
+
+  // --- QUẢN LÝ 3 TRANG CHÍNH BẰNG NÚT LEFT / RIGHT ---
+  if (currentTime - lastDebounceTime > debounceDelay) {
+    
+    // TRANG 0: MENU TRÒ CHƠI
+    if (currentPage == 0) {
       if (btnUp) {
         currentSelection--;
         if (currentSelection < 0) currentSelection = totalItems - 1;
@@ -162,10 +149,14 @@ void loop() {
         tone(PIN_BUZZER, 800, 30);
         lastDebounceTime = currentTime;
       } 
-      // Bấm LEFT hoặc RIGHT để chuyển sang Menu Nhạc
-      else if (btnLeft || btnRight) {
+      else if (btnRight) { // Sang trang Nhạc (Trang 1)
         tone(PIN_BUZZER, 1000, 50);
-        inMusicMenu = true; 
+        currentPage = 1;
+        lastDebounceTime = currentTime;
+      }
+      else if (btnLeft) { // Sang trang Wifi (Trang 2)
+        tone(PIN_BUZZER, 1000, 50);
+        currentPage = 2;
         lastDebounceTime = currentTime;
       }
       else if (btnA) {
@@ -180,27 +171,27 @@ void loop() {
           gameList[currentSelection].initFunc(); 
         }
       }
+      drawMenuUI();
     }
-    drawMenuUI();
-  } 
-  // 2. Đang ở trong Menu Nhạc
-  else if (inMusicMenu) {
-    if (currentTime - lastDebounceTime > debounceDelay) {
-      // Truyền đủ tất cả các nút vào hàm runMusicMenu để tự xử lý trong file MusicMenu.h
-      runMusicMenu(display, PIN_BUZZER, btnUp, btnDown, btnLeft, btnRight, btnA, btnB, inMusicMenu);
+    // TRANG 1: KHO TÀNG NHẠC
+    else if (currentPage == 1) {
+      if (btnRight) {
+        tone(PIN_BUZZER, 1000, 50);
+        currentPage = 2; // Sang trang Wifi
+        lastDebounceTime = currentTime;
+      } else if (btnLeft) {
+        tone(PIN_BUZZER, 1000, 50);
+        currentPage = 0; // Về trang Menu Game
+        lastDebounceTime = currentTime;
+      } else {
+        runMusicMenu(display, PIN_BUZZER, btnUp, btnDown, btnLeft, btnRight, btnA, btnB, inMusicMenu);
+      }
+    }
+    // TRANG 2: QUẢN LÝ WIFI
+    else if (currentPage == 2) {
+      runWifiMenu(display, PIN_BUZZER, btnUp, btnDown, btnLeft, btnRight, btnA, btnB, currentPage);
       lastDebounceTime = currentTime;
     }
-  }
-  // 3. Đang ở Cài đặt
-  else if (inSettings) {
-    if (currentTime - lastDebounceTime > debounceDelay) {
-      runSettings(display, PIN_BUZZER, btnUp, btnDown, btnB, inSettings);
-      lastDebounceTime = currentTime;
-    }
-  }
-  // 4. Đang chơi Game
-  else {
-    gameList[currentSelection].runFunc(btnUp, btnDown, btnLeft, btnRight, btnA, btnB, display, PIN_BUZZER, inGame);
   }
 }
 
@@ -232,6 +223,6 @@ void drawMenuUI() {
   }
 
   display.setCursor(0, 57);
-  display.print(F("U/D:Chon  A:Vao"));
+  display.print(F("L/R: Doi Trang (1/3)"));
   display.display();
 }
